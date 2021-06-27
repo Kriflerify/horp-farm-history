@@ -25,17 +25,14 @@ def read_data():
 
 def main():
     logs = read_data()
-    headers = ['provider'] + \
-        [f"deposit_{i}" for i in range(13)] + \
-        [f"reward_{i}" for i in range(13)] + \
-        [f"claimed_{i}" for i in range(13)] + \
-        [f"removed_{i}" for i in range(14)]
-        # [f"total_{i}" for i in range(13)]
+    headers = [f"deposit_{i}" for i in range(13)] + \
+        [f"removed_{i}" for i in range(14)] + \
+        [f"claimed_{i}" for i in range(13)]
 
 
-    data, eligible_balance = rewards.calc_rewards(*logs)
+    index, data = rewards.calc_rewards(*logs)
     
-    df = pd.DataFrame(data=data, columns=headers)
+    df = pd.DataFrame(data=data, index=index, columns=headers)
     print(df.head())
     
 
