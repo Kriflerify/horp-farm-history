@@ -12,17 +12,26 @@ providers = {}
 class Provider:
     def __init__(self, id):
         self.id = id
-        self.completed_until = -1
-        self.deposit = [0]*(TOTAL_CLAIM_PERIOD) # sum of added tokens in corresponding period
-        self.removed = [0]*(TOTAL_CLAIM_PERIOD + 1) # sum of removed tokens in correspoing period
-                                                    # + 1 because its possible to remove after the claim period
-        self.claimed = [0]*(TOTAL_CLAIM_PERIOD) # total reward collected during corresponding period
+        self.balance = [0]*(TOTAL_CLAIM_PERIOD + 2) # Balance at end of correspoinding period
+        self.eligible_balance = [0]*(TOTAL_CLAIM_PERIOD) # Amount of tokens locked from end of period i to next one
+        self.claimed = [0]*(TOTAL_CLAIM_PERIOD + 1) # total reward collected during corresponding period
+
+    def next_period(self, ending_period):
+        self.balance[ending_period+1] = self.balance[ending_period]
+        if (ending_period < TOTAL_CLAIM_PERIOD-1):
+            self.eligible_balance[ending_period+1] = self.balance[ending_period]
 
     def add_token(self, period, amount):
-        self.deposit[period] += amount
+        self.balance[period] += amount
+        self.eligible_balance[period] += amount
 
     def remove_token(self, period, amount):
-        self.removed[period] += amount
+        self.balance[period] -= amount
+        if (period < TOTAL_CLAIM_PERIOD):
+            self.eligible_balance[period] -= amount
+        if (period > 0):
+            self.eligible_balance[period-1] = min(self.eligible_balance[period-1], \
+                self.balance[period])
 
     def claim_incentive(self, period, amount):
         self.claimed[period] += amount
@@ -32,9 +41,9 @@ def transposed_providers():
     data = []
     for p in providers.values():
         index += [p.id]
-        row = [p.deposit[i] for i in range(TOTAL_CLAIM_PERIOD)]
-        row += [p.removed[i] for i in range(TOTAL_CLAIM_PERIOD+1)]
-        row += [p.claimed[i] for i in range(TOTAL_CLAIM_PERIOD)]
+        row = [p.balance[i] for i in range(TOTAL_CLAIM_PERIOD + 2)]
+        row += [p.eligible_balance[i] for i in range(TOTAL_CLAIM_PERIOD)]
+        row += [p.claimed[i] for i in range(TOTAL_CLAIM_PERIOD + 1)]
         data += [row]
     return index, data
     
@@ -67,7 +76,7 @@ def process_incentive_claimed(log):
     providers[id].claim_incentive(until, amount)
 
 
-def calc_rewards(TokenAdded, TokenRemoved, IncentiveClaimed):
+def bin_by_week(TokenAdded, TokenRemoved, IncentiveClaimed):
     ia = ir = ic = 0
     i_period = 0
 
@@ -78,7 +87,9 @@ def calc_rewards(TokenAdded, TokenRemoved, IncentiveClaimed):
 
         block = min(block_a, block_r, block_c)
 
-        if (distributionBlocks[i_period] < block and i_period <= 13):
+        if (i_period <= TOTAL_CLAIM_PERIOD and distributionBlocks[i_period] < block):
+            for p in providers.values():
+                p.next_period(i_period)
             i_period += 1
         else:
             if (block == block_a):
@@ -92,3 +103,43 @@ def calc_rewards(TokenAdded, TokenRemoved, IncentiveClaimed):
                 ic += 1
 
     return transposed_providers()
+
+def calc_reward(df):
+    t = df.sum()
+    print(t)
+    df['reward_0'] = 0
+    for i in range(1, TOTAL_CLAIM_PERIOD + 1):
+        df[f"reward_{i}"] = (WEEKLY_INCENTIVE * df[f"eligible_balance_{i-1}"]) / t[f"eligible_balance_{i-1}"]
+        df[f"reward_{i}"] += df[f"reward_{i-1}"] - df[f"claimed_{i-1}"]
+
+    t = df.sum()
+    return t, df
+
+def get_pool(TokenAdded, TokenRemoved, IncentiveClaimed):
+    pool_x = [0]
+    pool_y = [0]
+
+    ia = ir = ic = 0
+    i_period = 0
+
+    while (ia<len(TokenAdded) or ir < len(TokenRemoved)):
+        block_a = TokenAdded[ia]['blockNumber'] if ia<len(TokenAdded) else 999999999
+        block_r = TokenRemoved[ir]['blockNumber'] if ir<len(TokenRemoved) else 999999999
+
+        block = min(block_a, block_r)
+
+        pool_x += [block]
+        if block == block_a:
+            log = TokenAdded[ia]
+            amount = int(log['data'], 16)
+            pool_y += [pool_y[-1] + amount]
+            ia += 1
+        elif block == block_r:
+            log == TokenRemoved[ir]
+            amount = int(log['data'], 16)
+            pool_y += [pool_y[-1] - amount]
+            ir += 1
+
+    pool_x = pool_x[1:]
+    pool_y = pool_y[1:]
+    return pool_x, pool_y
