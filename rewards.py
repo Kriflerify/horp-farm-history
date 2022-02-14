@@ -13,7 +13,7 @@ class Provider:
     def __init__(self, id):
         self.id = id
         self.balance = [0]*(TOTAL_CLAIM_PERIOD + 2) # Balance at end of correspoinding period
-        self.eligible_balance = [0]*(TOTAL_CLAIM_PERIOD) # Amount of tokens locked from end of period i to next one
+        self.eligible_balance = [0]*(TOTAL_CLAIM_PERIOD + 1) # Amount of tokens locked from end of period i to next one
         self.claimed = [0]*(TOTAL_CLAIM_PERIOD + 1) # total reward collected during corresponding period
 
     def next_period(self, ending_period):
